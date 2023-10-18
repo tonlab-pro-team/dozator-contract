@@ -1,0 +1,10 @@
+.build/
+node_modules
+temp
+build
+package-lock.json
+yarn.lock
+vim.session
+dapp/
+.git_old
+test.md

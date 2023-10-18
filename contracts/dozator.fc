@@ -1,0 +1,147 @@
+{-
+  Jetton semi-auto Dozator Contract.
+
+  A contract that sends
+  3 diffrent jetton amounts to
+  3 different addresses in
+  3 different periods.
+  In parallel.
+
+  It was created to organize
+  the tokenomics of the MARGA jetton.
+-}
+
+#include "stdlib.fc";
+#include "messages.fc";
+
+;; storage#_ a_next_pay:uint48 b_next_pay:uint48 c_next_pay:uint48 jwallet:MsgAddress = Storage;
+
+const slice a_destination = "EQAdPbcyUl1KGYwFAZByNs8M_2gyphi3X7TpYiXW-w3tBank"a;
+const int a_amount = 2000000000000; ;; 2000 MARGA
+const int a_period = 1209000; ;; 14 days - 10 min
+
+const slice b_destination = "EQCNyEcHg5I7YR_PhtuPye7yDMs9Imnm22MY5CiZPyCALBA4"a;
+const int b_amount = 1200000000000; ;; 1200 MARGA
+const int b_period = 7776000; ;; 3 months
+
+const slice c_destination = "EQDbU1SVEjBE73oUqgAoM9gDcShUkM5EC2PgoCjuwVUKo-Ee"a;
+const int c_amount = 98893800000000; ;; 98893.8 MARGA
+const int c_period = 157680000; ;; 5 years
+
+const int op::transfer = 0x0f8a7ea5;
+
+;; TON amount sent with jetton transfer request
+const int transfer_amount = 200000000; ;; 0.2 TON
+;; Amount to be delivered with transfer_notificaiton (need it for runs on destination)
+const int forward_amount = 50000000; ;; 0.05 TON
+
+global slice jwallet_address;
+
+
+() recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
+    if ( in_msg_body.slice_empty?() ) { return (); }
+    slice cs = in_msg_full.begin_parse();
+    int flags = cs~load_uint(4);
+
+    if (flags & 1) { ;; ignore all bounced messages
+        return ();
+    }
+
+    slice sender_address = cs~load_msg_addr();
+
+    slice ds = get_data().begin_parse();
+
+    int a_next = ds~load_time();
+    int b_next = ds~load_time();
+    int c_next = ds~load_time();
+    jwallet_address = ds~load_msg_addr();
+
+    if (jwallet_address.preload_uint(2) == 0) {
+        ;; initializing:
+        ;; works only for the first internal
+        ;; message containing jwallet address.
+        ;; in initstate all next_pays (timestamps)
+        ;; should be 0 and the wallet should be addr_none$00
+        int n = now();
+        slice my_new_jwallet = in_msg_body~load_msg_addr();
+        set_data(begin_cell().store_time(n + a_period)
+                             .store_time(n + b_period)
+                             .store_time(n + c_period)
+                             .store_slice(my_new_jwallet)
+                  .end_cell());
+    }
+    return ();
+}
+
+
+;; transfer#0f8a7ea5 query_id:uint64 amount:(VarUInteger 16) destination:MsgAddress
+;;                  response_destination:MsgAddress custom_payload:(Maybe ^Cell)
+;;                  forward_ton_amount:(VarUInteger 16) forward_payload:(Either Cell ^Cell)
+;;                  = InternalMsgBody;
+() send_tokens(slice dest, int amount) impure inline {
+    var msg = begin_cell().store_msg_flag(msg_flag::bounceable)
+                          .store_slice(jwallet_address)
+                          .store_coins(transfer_amount)
+                          .store_msgbody_prefix_ref(
+                         begin_cell().store_op(op::transfer)
+                                     .store_query_id(0)
+                                     .store_coins(amount)
+                                     .store_slice(dest)
+                                     .store_slice(dest) ;; response
+                                     .store_int(false, 1) ;; custom_payload null
+                                     .store_coins(forward_amount)
+                                     .store_int(false, 1) ;; forward_payload null
+                          .end_cell())
+               .end_cell();
+    send_raw_message(msg, 0);
+}
+
+() recv_external(slice in_msg) impure {
+    slice ds = get_data().begin_parse();
+
+    int a_next = ds~load_time();
+    int b_next = ds~load_time();
+    int c_next = ds~load_time();
+
+    int n = now();
+    var (a_need?, b_need?, c_need?) = (a_next < n,
+                                       b_next < n,
+                                       c_next < n);
+    throw_unless(91, a_need? | b_need? | c_need?); ;; no need to send any
+    jwallet_address = ds~load_msg_addr();
+    throw_if(92, jwallet_address.preload_uint(2) == 0); ;; if jwallet is null then uninitialized
+    accept_message();
+
+    if (a_need?) {
+        send_tokens(a_destination, a_amount);
+        a_next = n + a_period;
+    }
+    if (b_need?) {
+        send_tokens(b_destination, b_amount);
+        b_next = n + b_period;
+    }
+    if (c_need?) {
+        send_tokens(c_destination, c_amount);
+        c_next = n + c_period;
+    }
+    set_data(begin_cell().store_time(a_next)
+                         .store_time(b_next)
+                         .store_time(c_next)
+                         .store_slice(jwallet_address)
+              .end_cell());
+    return ();
+}
+
+(int, int, int) get_next_payouts() method_id {
+    slice ds = get_data().begin_parse();
+    int a_next = ds~load_time();
+    int b_next = ds~load_time();
+    int c_next = ds~load_time();
+    return (a_next, b_next, c_next);
+}
+
+slice get_jwallet_address() method_id {
+    slice ds = get_data().begin_parse();
+    ds~skip_bits(48 * 3);
+    return ds~load_msg_addr();
+}
