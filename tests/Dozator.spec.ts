@@ -1,5 +1,10 @@
-import { Blockchain, SandboxContract, TreasuryContract } from "@ton/sandbox";
-import { Address, Cell, toNano } from "@ton/core";
+import {
+    Blockchain,
+    BlockchainSnapshot,
+    SandboxContract,
+    TreasuryContract,
+} from "@ton/sandbox";
+import { Address, Cell, fromNano, toNano } from "@ton/core";
 import { Dozator } from "../wrappers/Dozator";
 import "@ton/test-utils";
 import { compile } from "@ton/blueprint";
@@ -15,13 +20,13 @@ type DestinationData = {
 };
 
 const a: DestinationData = {
-    address: Address.parse("EQAdPbcyUl1KGYwFAZByNs8M_2gyphi3X7TpYiXW-w3tBank"),
+    address: Address.parse("EQCqNTwAYUNhPFS0RgqZoTLGJcQQxbAJ7csUo4YO3_TONLab"),
     amount: 2000000000000n,
     period: 1209000,
 };
 const b: DestinationData = {
-    address: Address.parse("EQCNyEcHg5I7YR_PhtuPye7yDMs9Imnm22MY5CiZPyCALBA4"),
-    amount: 1200000000000n,
+    address: Address.parse("EQCL3DmCynaRK7-vsfeNmd4Jj-UxAIHPvA4qS2xwaL6UpLbF"),
+    amount: 2400000000000n,
     period: 7776000,
 };
 const c: DestinationData = {
@@ -29,6 +34,8 @@ const c: DestinationData = {
     amount: 98893800000000n,
     period: 157680000,
 };
+
+const SEND_COST = toNano("0.21");
 
 describe("Dozator", () => {
     let code: Cell;
@@ -134,11 +141,13 @@ describe("Dozator", () => {
         } catch (e) {}
     });
 
+    let uninited: BlockchainSnapshot;
     it("should init", async () => {
+        uninited = blockchain.snapshot();
         const deployResult = await dozator.sendDeploy(
             deployer.getSender(),
             jwallet.address,
-            toNano("5")
+            toNano("0.05")
         );
 
         expect(deployResult.transactions).toHaveTransaction({
@@ -313,5 +322,121 @@ describe("Dozator", () => {
             dozator.address
         );
         expect(balanceAfter).toEqual(balanceBefore);
+    });
+
+    it("should fail if balance is not enough", async () => {
+        const { balance } = await blockchain.getContract(dozator.address);
+        expect(balance).toBeLessThan(SEND_COST * 2n);
+        const nextPayouts = await dozator.getNextPayouts();
+        const timeForTwoSends = nextPayouts.b + 1;
+        blockchain.now = timeForTwoSends;
+
+        try {
+            await dozator.sendCallDoze(); // storage fee spend
+            throw new Error("should fail");
+        } catch (e) {}
+
+        const { balance: balanceBefore } = await blockchain.getContract(
+            dozator.address
+        );
+        try {
+            const callResult = await dozator.sendCallDoze();
+            expect(callResult.transactions).toHaveTransaction({
+                from: undefined,
+                on: dozator.address,
+                success: false,
+                exitCode: 93,
+            });
+        } catch (e) {}
+        const { balance: balanceAfter } = await blockchain.getContract(
+            dozator.address
+        );
+        expect(balanceAfter).toEqual(balanceBefore);
+    });
+
+    it("should init with custom zero_time", async () => {
+        await blockchain.loadFrom(uninited);
+        const zero_time = 500;
+        const deployResult = await dozator.sendDeploy(
+            deployer.getSender(),
+            jwallet.address,
+            toNano("0.05"),
+            zero_time
+        );
+        expect(deployResult.transactions).toHaveTransaction({
+            from: deployer.address,
+            on: dozator.address,
+            success: true,
+        });
+        const nextPayouts = await dozator.getNextPayouts();
+        expect(nextPayouts).toEqual({
+            a: zero_time + a.period,
+            b: zero_time + b.period,
+            c: zero_time + c.period,
+        });
+    });
+
+    it("should init with custom zero_time when it passed", async () => {
+        await blockchain.loadFrom(uninited);
+        blockchain.now = 400;
+        const zero_time = 200;
+        const deployResult = await dozator.sendDeploy(
+            deployer.getSender(),
+            jwallet.address,
+            toNano("0.05"),
+            zero_time
+        );
+        expect(deployResult.transactions).toHaveTransaction({
+            from: deployer.address,
+            on: dozator.address,
+            success: true,
+        });
+        const nextPayouts = await dozator.getNextPayouts();
+        expect(nextPayouts).toEqual({
+            a: zero_time + a.period,
+            b: zero_time + b.period,
+            c: zero_time + c.period,
+        });
+    });
+
+    it("should init with zero_time = 0 and schedule from now", async () => {
+        await blockchain.loadFrom(uninited);
+        blockchain.now = 100;
+
+        const deployResult = await dozator.sendDeploy(
+            deployer.getSender(),
+            jwallet.address,
+            toNano("0.05"),
+            0
+        );
+        expect(deployResult.transactions).toHaveTransaction({
+            from: deployer.address,
+            on: dozator.address,
+            success: true,
+        });
+        const nextPayouts = await dozator.getNextPayouts();
+        expect(nextPayouts).toEqual({
+            a: blockchain.now + a.period,
+            b: blockchain.now + b.period,
+            c: blockchain.now + c.period,
+        });
+    });
+
+    it("should not init if there are extra bits in message", async () => {
+        await blockchain.loadFrom(uninited);
+        const deployResult = await dozator.sendInternal(
+            deployer.getSender(),
+            Dozator.initMessage(jwallet.address, 0)
+                .asBuilder()
+                .storeBit(1)
+                .endCell(),
+            toNano("0.05")
+        );
+        expect(deployResult.transactions).toHaveTransaction({
+            from: deployer.address,
+            on: dozator.address,
+            success: false,
+            exitCode: 9,
+        });
     });
 });

@@ -42,21 +42,43 @@ export class Dozator implements Contract {
             sendMode: SendMode.PAY_GAS_SEPARATELY,
         });
     }
+
+    static initMessage(jwallet: Address, zero_time: number) {
+        return beginCell()
+            .storeAddress(jwallet)
+            .storeUint(zero_time, 48)
+            .endCell();
+    }
+
     async sendDeploy(
         provider: ContractProvider,
         via: Sender,
         jwallet: Address,
-        value: bigint
+        value: bigint,
+        zero_time: number = 0
     ) {
         await provider.internal(via, {
             value,
             sendMode: SendMode.PAY_GAS_SEPARATELY,
-            body: beginCell().storeAddress(jwallet).endCell(),
+            body: Dozator.initMessage(jwallet, zero_time),
         });
     }
 
     async sendCallDoze(provider: ContractProvider) {
         await provider.external(Cell.EMPTY);
+    }
+
+    async sendInternal(
+        provider: ContractProvider,
+        via: Sender,
+        body: Cell,
+        value: bigint
+    ) {
+        await provider.internal(via, {
+            value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body,
+        });
     }
 
     async getCallDozeBoc() {
