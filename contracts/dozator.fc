@@ -118,7 +118,6 @@ global slice jwallet_address;
     throw_if(92, jwallet_address.preload_uint(2) == 0); ;; if jwallet is null then uninitialized
 
     int my_balance = pair_first(get_balance());
-    ~dump(-(a_need? + b_need? + c_need?) * send_cost);
     throw_unless(93, my_balance >= -(a_need? + b_need? + c_need?) * send_cost);
 
     accept_message();
