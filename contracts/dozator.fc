@@ -16,7 +16,7 @@
 
 ;; storage#_ a_next_pay:uint48 b_next_pay:uint48 c_next_pay:uint48 jwallet:MsgAddress = Storage;
 
-const slice a_destination = "EQCqNTwAYUNhPFS0RgqZoTLGJcQQxbAJ7csUo4YO3_TONLab"a;
+const slice a_destination = "EQBeoOpLsGkt_mS989yJ79j8zqzb1iLRCvsQogKUyRV--W3T"a;
 const int a_amount = 2000000000000; ;; 2000 MARGA
 const int a_period = 1209000; ;; 14 days - 10 min
 
@@ -62,7 +62,7 @@ global slice jwallet_address;
     if (jwallet_address.preload_uint(2) == 0) {
         ;; initializing:
         ;; works only for the first internal
-        ;; message containing jwallet address.
+        ;; message containing jwallet address and zero time.
         ;; when jwallet is addr_none$00
         slice my_new_jwallet = in_msg_body~load_msg_addr();
         int zero_time = in_msg_body~load_time();

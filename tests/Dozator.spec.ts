@@ -20,7 +20,7 @@ type DestinationData = {
 };
 
 const a: DestinationData = {
-    address: Address.parse("EQCqNTwAYUNhPFS0RgqZoTLGJcQQxbAJ7csUo4YO3_TONLab"),
+    address: Address.parse("EQBeoOpLsGkt_mS989yJ79j8zqzb1iLRCvsQogKUyRV--W3T"),
     amount: 2000000000000n,
     period: 1209000,
 };
